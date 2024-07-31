@@ -60,28 +60,30 @@ __global__ void rgba_to_greyscale(const uchar4 *const rgbaImage,
   // Essentially all we are doing here is defining a map from pixel index to thread index.
 
   // "global positioning" = intra-block offset + inter-block offset
-  int x = threadIdx.x + blockIdx.x * blockDim.x;
-  int y = threadIdx.y + blockIdx.y * blockDim.y;
+  const uint2 pixel_loc = make_uint2(threadIdx.x + blockIdx.x * blockDim.x,
+                                     threadIdx.y + blockIdx.y * blockDim.y);
+  if (pixel_loc.x >= numCols || pixel_loc.y >= numRows) {
+    return;
+  }
   // pixel index
-  int pixel_idx = x + y * numCols;
+  const unsigned int flat_idx = pixel_loc.x + pixel_loc.y * numCols;
   // I think the rgb image will reside in global memory, that's why we can access the single pixel
   // with rgbaImage[thIdx];
-  uchar4 rgba = rgbaImage[pixel_idx];
-  greyImage[pixel_idx] = 0.299f * rgba.x + 0.587f * rgba.y + 0.114f * rgba.z;
+  uchar4 rgba = rgbaImage[flat_idx];
+  greyImage[flat_idx] = 0.299f * rgba.x + 0.587f * rgba.y + 0.114f * rgba.z;
 }
 
 void your_rgba_to_greyscale(const uchar4 *const h_rgbaImage, uchar4 *const d_rgbaImage,
                             unsigned char *const d_greyImage, size_t numRows, size_t numCols)
 {
 
-  int const nThreadsX = 32;
-  int const nThreadsY = nThreadsX;
+  // partition image into numBlocks in each direction
+  const unsigned int numThreads = 32;
+  const unsigned int numBlocksX = floor(numCols / numThreads) + 1;
+  const unsigned int numBlocksY = floor(numRows / numThreads) + 1;
   // how should i determine blocksize in general and in practice?
-  const dim3 blockSize(nThreadsX, nThreadsY, 1);
-  // one more than necessary
-  unsigned int nBlocksY = (unsigned int)numRows / nThreadsX + 1;
-  unsigned int nBlocksX = (unsigned int)numCols / nThreadsY + 1;
-  const dim3 gridSize(nBlocksX, nBlocksY, 1);
+  const dim3 blockSize(numThreads, numThreads, 1);
+  const dim3 gridSize(numBlocksX, numBlocksY, 1);
   rgba_to_greyscale<<<gridSize, blockSize>>>(d_rgbaImage, d_greyImage, numRows, numCols);
 
   cudaDeviceSynchronize();
